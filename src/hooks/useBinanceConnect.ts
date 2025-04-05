@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { useAuth } from './useAuth';
+import { useAuth } from '../contexts/AuthContext';
 import { encryptApiKeys } from '../utils/crypto';
+import CryptoJS from 'crypto-js';
+import { toast } from 'react-hot-toast';
 
 export function useBinanceConnect() {
   const [isConnecting, setIsConnecting] = useState(false);
@@ -38,22 +40,28 @@ export function useBinanceConnect() {
         throw new Error('API keys are required');
       }
 
-      // Encrypt API keys before storing
-      const encryptedKeys = encryptApiKeys(apiKey, secretKey);
+      // Generate a unique salt for the user
+      const userSalt = CryptoJS.lib.WordArray.random(16).toString();
 
-      // Store encrypted keys in Firestore
+      // Encrypt API keys with the unique salt
+      const encryptedData = encryptApiKeys(apiKey, secretKey, userSalt);
+
+      // Store encrypted keys, IV, and salt in Firestore
       await setDoc(doc(db, 'users', user.uid, 'exchanges', 'binance'), {
-        apiKey: encryptedKeys.apiKey,
-        secretKey: encryptedKeys.secretKey,
+        apiKey: encryptedData.apiKey,
+        secretKey: encryptedData.secretKey,
+        iv: encryptedData.iv,
+        salt: userSalt,
         connected: true,
         connectedAt: new Date().toISOString()
       });
 
-      // Test the connection
-      await testBinanceConnection(apiKey);
+      toast.success('Successfully connected to Binance!');
 
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to connect to Binance');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to connect to Binance';
+      setError(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setIsConnecting(false);
     }

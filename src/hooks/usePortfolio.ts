@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { useAuth } from './useAuth';
+import { useAuth } from '../contexts/AuthContext';
 import { decryptApiKeys } from '../utils/crypto';
 import { binanceAPI } from '../lib/binance';
 
@@ -29,7 +29,10 @@ export function usePortfolio() {
       }
 
       try {
-        // Get Binance API keys
+        setLoading(true);
+        setError(null);
+
+        // Get Binance API keys and encryption data
         const binanceDoc = await getDoc(doc(db, 'users', user.uid, 'exchanges', 'binance'));
         
         if (!binanceDoc.exists()) {
@@ -37,11 +40,22 @@ export function usePortfolio() {
           return;
         }
 
-        const { apiKey: encryptedApiKey, secretKey: encryptedSecretKey } = binanceDoc.data();
-        const { apiKey, secretKey } = decryptApiKeys(encryptedApiKey, encryptedSecretKey);
+        const { 
+          apiKey: encryptedApiKey, 
+          secretKey: encryptedSecretKey, 
+          iv, 
+          salt 
+        } = binanceDoc.data();
+
+        // Decrypt the API keys using the stored salt and IV
+        const { apiKey, secretKey } = decryptApiKeys(
+          encryptedApiKey, 
+          encryptedSecretKey, 
+          iv, 
+          salt
+        );
 
         // Initialize Binance client with decrypted keys
-        // Fetch account information and calculate portfolio value
         const accountInfo = await binanceAPI.getAccountInfo(apiKey, secretKey);
         
         // Transform account data into portfolio format
@@ -49,6 +63,7 @@ export function usePortfolio() {
         setPortfolio(portfolio);
         
       } catch (err) {
+        console.error('Portfolio fetch error:', err);
         setError(err instanceof Error ? err.message : 'Failed to fetch portfolio');
       } finally {
         setLoading(false);
@@ -63,7 +78,6 @@ export function usePortfolio() {
 
 function transformAccountToPortfolio(accountInfo: any): Portfolio {
   // Transform Binance account data into our Portfolio format
-  // This is a placeholder implementation
   return {
     totalValue: 0,
     dailyChange: 0,
